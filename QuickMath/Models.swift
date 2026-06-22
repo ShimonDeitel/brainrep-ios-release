@@ -141,8 +141,8 @@ final class AppModel: ObservableObject {
         allRecords = records
         allPerformance = perf
         let today = Calendar.current.startOfDay(for: Date())
-        todaysRecord = records.first { Calendar.current.startOfDay(for: $0.dateServed) == today && $0.type == ExerciseBank.todaysExercise().type }
-        bonusRecord = records.first { Calendar.current.startOfDay(for: $0.dateServed) == today && $0.type == ExerciseBank.todaysExercise(bonusOffset: 1).type && $0.id != todaysRecord?.id }
+        todaysRecord = records.first { Calendar.current.startOfDay(for: $0.dateServed) == today && $0.type == ExerciseBank.todaysExercise().type.rawValue }
+        bonusRecord = records.first { Calendar.current.startOfDay(for: $0.dateServed) == today && $0.type == ExerciseBank.todaysExercise(bonusOffset: 1).type.rawValue && $0.id != todaysRecord?.id }
         streakDays = computeStreak(records: records)
     }
 
