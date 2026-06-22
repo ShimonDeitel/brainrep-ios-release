@@ -1,137 +1,215 @@
 import SwiftUI
-import Charts
 
 struct GridView: View {
+    let exercise: ExerciseBank.Exercise
+    let isBonus: Bool
+
     @EnvironmentObject var appModel: AppModel
+    @Environment(\.dismiss) private var dismiss
 
-    @State private var sliderValue: Double = 5
-    @State private var logged = false
+    @State private var userAnswer: String = ""
+    @State private var phase: Phase = .reading
+    @State private var startTime: Date = Date()
+    @State private var elapsed: Int = 0
+    @State private var timer: Timer?
+    @State private var showResult: Bool = false
+    @State private var wasCorrect: Bool = false
+    @State private var timerCount: Int = 5
+    @State private var memCountdown: Timer?
 
-    private var chartEntries: [WaveEntry] {
-        Array(appModel.recentEntries.reversed())
+    enum Phase {
+        case reading     // user reads the question
+        case answering   // user types / confirms answer
+        case result      // reveal correct/wrong
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            // Wave chart
-            if chartEntries.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 44))
-                        .foregroundStyle(Color.qmAccent.opacity(0.4))
-                    Text("Log your first energy level below")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(height: 140)
-                .frame(maxWidth: .infinity)
-            } else {
-                Chart {
-                    ForEach(Array(chartEntries.enumerated()), id: \.offset) { idx, entry in
-                        AreaMark(
-                            x: .value("Day", idx),
-                            yStart: .value("Base", 0),
-                            yEnd: .value("Level", entry.level)
-                        )
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color.qmAccent.opacity(0.25), Color.qmAccent.opacity(0.05)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .interpolationMethod(.catmullRom)
-
-                        LineMark(
-                            x: .value("Day", idx),
-                            y: .value("Level", entry.level)
-                        )
+        NavigationStack {
+            ZStack {
+                QMBackground()
+                VStack(spacing: 28) {
+                    // Type badge
+                    Text(exercise.type.rawValue.uppercased())
+                        .font(.caption.weight(.bold))
+                        .tracking(2)
                         .foregroundStyle(Color.qmAccent)
-                        .lineStyle(StrokeStyle(lineWidth: 2.5))
-                        .interpolationMethod(.catmullRom)
+                        .padding(.top, 8)
 
-                        PointMark(
-                            x: .value("Day", idx),
-                            y: .value("Level", entry.level)
-                        )
-                        .foregroundStyle(Color.qmAccent)
-                        .symbolSize(36)
+                    // Prompt card
+                    promptSection
+
+                    if phase == .answering {
+                        answerSection
                     }
-                }
-                .chartYScale(domain: 0...10)
-                .chartXAxis(.hidden)
-                .chartYAxis {
-                    AxisMarks(values: [0, 5, 10]) { value in
-                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [4]))
-                            .foregroundStyle(Color.qmHair)
-                        AxisValueLabel {
-                            if let v = value.as(Int.self) {
-                                Text("\(v)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+
+                    if phase == .result {
+                        resultSection
                     }
+
+                    Spacer()
                 }
-                .frame(height: 140)
+                .padding(.horizontal)
             }
-
-            // Divider
-            Divider()
-
-            // Log energy section
-            VStack(spacing: 12) {
-                HStack {
-                    Text("Energy level")
-                        .font(.headline)
-                    Spacer()
-                    Text("\(Int(sliderValue.rounded()))")
-                        .font(.title2.weight(.bold))
+            .navigationTitle(isBonus ? "Bonus Exercise" : "Today's Exercise")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") { dismiss() }
                         .foregroundStyle(Color.qmAccent)
-                        .monospacedDigit()
-                        .frame(width: 32)
                 }
-
-                Slider(value: $sliderValue, in: 0...10, step: 1)
-                    .tint(Color.qmAccent)
-                    .onChange(of: sliderValue) { _, _ in
-                        Haptics.tap()
-                        logged = false
-                    }
-
-                HStack {
-                    Text("Low")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("High")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Button {
-                    appModel.logEnergy(level: Int(sliderValue.rounded()))
-                    Haptics.success()
-                    logged = true
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: logged ? "checkmark" : "waveform.path")
-                        Text(logged ? "Logged" : "Log Today's Energy")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .prominentButton()
-                .disabled(logged)
-                .animation(.easeInOut(duration: 0.2), value: logged)
             }
         }
-        .qmCard()
-        .onAppear {
-            if let today = appModel.todayEntry {
-                sliderValue = Double(today.level)
-                logged = true
+        .onDisappear {
+            timer?.invalidate()
+            memCountdown?.invalidate()
+        }
+    }
+
+    // MARK: - Prompt section
+
+    @ViewBuilder
+    private var promptSection: some View {
+        VStack(spacing: 12) {
+            if phase == .reading {
+                Text(exercise.prompt)
+                    .font(.title3.weight(.medium))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.primary)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.qmCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                if exercise.type == .memory {
+                    VStack(spacing: 8) {
+                        Text("Memorise, then tap Ready (\(timerCount)s)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ProgressView(value: Double(5 - timerCount), total: 5)
+                            .tint(Color.qmAccent)
+                    }
+                }
+
+                Button("Ready") {
+                    startAnswering()
+                }
+                .prominentButton()
+                .onAppear { startMemoryCountdown() }
+            } else {
+                Text(exercise.type == .memory ? "Now recall the sequence:" : exercise.prompt)
+                    .font(.title3.weight(.medium))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.primary)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.qmCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
+        }
+    }
+
+    // MARK: - Answer section
+
+    @ViewBuilder
+    private var answerSection: some View {
+        VStack(spacing: 16) {
+            TextField("Your answer", text: $userAnswer)
+                .textFieldStyle(.plain)
+                .font(.title3)
+                .multilineTextAlignment(.center)
+                .padding()
+                .background(Color.qmCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .autocorrectionDisabled()
+
+            HStack(spacing: 8) {
+                Image(systemName: "clock")
+                    .foregroundStyle(.secondary)
+                Text("\(elapsed)s")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button("Check Answer") {
+                checkAnswer()
+            }
+            .prominentButton()
+            .disabled(userAnswer.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+    }
+
+    // MARK: - Result section
+
+    @ViewBuilder
+    private var resultSection: some View {
+        VStack(spacing: 16) {
+            VStack(spacing: 8) {
+                Image(systemName: wasCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 56))
+                    .foregroundStyle(wasCorrect ? Color.qmCorrect : Color.qmWrong)
+                Text(wasCorrect ? "Correct!" : "Not quite")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.primary)
+                if !wasCorrect {
+                    VStack(spacing: 4) {
+                        Text("The answer was:")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text(exercise.answer)
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                    }
+                }
+                Text("Completed in \(elapsed) seconds")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(Color.qmCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+            Button("Done") {
+                dismiss()
+            }
+            .prominentButton()
+        }
+    }
+
+    // MARK: - Logic
+
+    private func startMemoryCountdown() {
+        guard exercise.type == .memory else { return }
+        timerCount = 5
+        memCountdown = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { t in
+            if timerCount > 0 {
+                timerCount -= 1
+            } else {
+                t.invalidate()
+                startAnswering()
+            }
+        }
+    }
+
+    private func startAnswering() {
+        memCountdown?.invalidate()
+        phase = .answering
+        startTime = Date()
+        elapsed = 0
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            elapsed = Int(Date().timeIntervalSince(startTime))
+        }
+        Haptics.tap()
+    }
+
+    private func checkAnswer() {
+        timer?.invalidate()
+        elapsed = Int(Date().timeIntervalSince(startTime))
+        let normalized = userAnswer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let correctNorm = exercise.answer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        wasCorrect = normalized == correctNorm || correctNorm.contains(normalized) && normalized.count > 3
+        phase = .result
+        appModel.markExercise(exercise, correct: wasCorrect, seconds: elapsed)
+        if wasCorrect {
+            Haptics.success()
+        } else {
+            Haptics.warning()
         }
     }
 }

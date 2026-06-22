@@ -9,78 +9,112 @@ struct HomeView: View {
     @State private var showSettings = false
     @State private var showPaywall = false
     @State private var showInsights = false
+    @State private var showExercise = false
+    @State private var showBonus = false
 
     var body: some View {
         NavigationStack {
             ZStack {
                 QMBackground()
-
                 ScrollView {
                     VStack(spacing: 24) {
                         // Header
                         VStack(spacing: 4) {
-                            Text("Tideline")
+                            Text("Brain Rep")
                                 .font(.largeTitle.weight(.bold))
-                            Text("Ride your daily mood wave")
+                                .foregroundStyle(.primary)
+                            Text("Daily mental warm-up")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.top, 8)
 
-                        // Today's entry card
-                        GridView()
-                            .padding(.horizontal, 16)
-
-                        // Stats row
-                        HStack(spacing: 12) {
-                            MetricTile(
-                                value: appModel.todayEntry.map { "\($0.level)" } ?? "-",
-                                label: "Today"
-                            )
-                            MetricTile(
-                                value: String(format: "%.1f", appModel.sevenDayAverage),
-                                label: "7-day avg"
-                            )
-                            MetricTile(
-                                value: "\(appModel.currentStreak)",
-                                label: "Streak"
-                            )
+                        // Streak banner
+                        HStack(spacing: 16) {
+                            MetricTile(value: "\(appModel.streakDays)", label: "Day Streak")
+                            MetricTile(value: "\(appModel.allRecords.filter(\.solvedCorrectly).count)", label: "Correct")
+                            MetricTile(value: "\(appModel.allRecords.count)", label: "Total")
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal)
 
-                        // Pro tile
-                        Button {
-                            if store.isPro {
-                                showInsights = true
-                            } else {
-                                showPaywall = true
+                        // Today's exercise card
+                        exerciseCard(
+                            title: "Today's Exercise",
+                            subtitle: appModel.todaysExercise.type.rawValue.capitalized,
+                            done: appModel.todaysRecord != nil,
+                            correct: appModel.todaysRecord?.solvedCorrectly
+                        ) {
+                            showExercise = true
+                        }
+                        .padding(.horizontal)
+
+                        // Pro tile: Bonus exercise + Insights
+                        if store.isPro {
+                            exerciseCard(
+                                title: "Bonus Exercise",
+                                subtitle: appModel.bonusExercise.type.rawValue.capitalized,
+                                done: appModel.bonusRecord != nil,
+                                correct: appModel.bonusRecord?.solvedCorrectly
+                            ) {
+                                showBonus = true
                             }
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(store.isPro ? "Tideline Pro" : "Unlock Insights")
-                                        .font(.headline)
-                                    Text(store.isPro ? "History, dual-wave & trends" : "Multi-month history + dual-wave")
-                                        .font(.caption)
+                            .padding(.horizontal)
+
+                            Button {
+                                showInsights = true
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Sharpness Insights")
+                                            .font(.headline.weight(.semibold))
+                                            .foregroundStyle(.primary)
+                                        Text("Track your cognitive trend")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chart.line.uptrend.xyaxis")
+                                        .font(.title2)
+                                        .foregroundStyle(Color.qmAccent)
+                                }
+                                .qmCard()
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal)
+                        } else {
+                            Button {
+                                showPaywall = true
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "lock.fill")
+                                                .foregroundStyle(Color.qmAccent)
+                                            Text("Brain Rep Pro")
+                                                .font(.headline.weight(.semibold))
+                                                .foregroundStyle(.primary)
+                                        }
+                                        Text("Graphs, streaks & a bonus daily exercise")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
                                         .foregroundStyle(.secondary)
                                 }
-                                Spacer()
-                                Image(systemName: store.isPro ? "waveform.path.ecg" : "lock.fill")
-                                    .foregroundStyle(Color.qmAccent)
-                                    .font(.title3)
+                                .qmCard()
                             }
-                            .qmCard()
+                            .buttonStyle(.plain)
+                            .padding(.horizontal)
                         }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 16)
 
-                        Spacer(minLength: 32)
+                        Spacer(minLength: 40)
                     }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showSettings = true
                     } label: {
@@ -89,33 +123,67 @@ struct HomeView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showSettings) {
-                SettingsView()
-                    .environmentObject(store)
-                    .environmentObject(appModel)
-            }
-            .sheet(isPresented: $showPaywall) {
-                PaywallView()
-                    .environmentObject(store)
-            }
-            .sheet(isPresented: $showInsights) {
-                InsightsView()
-                    .environmentObject(appModel)
-                    .environmentObject(store)
-            }
-            .onAppear {
-                handleForceScreen()
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .environmentObject(store)
+                .environmentObject(appModel)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $showInsights) {
+            InsightsView()
+                .environmentObject(appModel)
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $showExercise) {
+            GridView(exercise: appModel.todaysExercise, isBonus: false)
+                .environmentObject(appModel)
+        }
+        .sheet(isPresented: $showBonus) {
+            GridView(exercise: appModel.bonusExercise, isBonus: true)
+                .environmentObject(appModel)
+        }
+        .onAppear {
+            if let s = forceScreen {
+                if s == "paywall" { showPaywall = true }
+                else if s == "insights" { showInsights = true }
+                else if s == "exercise" { showExercise = true }
+                else if s == "settings" { showSettings = true }
             }
         }
     }
 
-    private func handleForceScreen() {
-        guard let screen = forceScreen else { return }
-        switch screen {
-        case "paywall": showPaywall = true
-        case "insights": showInsights = true
-        case "settings": showSettings = true
-        default: break
+    @ViewBuilder
+    private func exerciseCard(title: String, subtitle: String, done: Bool, correct: Bool?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    if done {
+                        HStack(spacing: 4) {
+                            Image(systemName: (correct == true) ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle((correct == true) ? Color.qmCorrect : Color.qmWrong)
+                            Text((correct == true) ? "Completed correctly" : "Completed")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Spacer()
+                Image(systemName: done ? "checkmark.seal.fill" : "play.circle.fill")
+                    .font(.title)
+                    .foregroundStyle(done ? Color.qmCorrect : Color.qmAccent)
+            }
+            .qmCard()
         }
+        .buttonStyle(.plain)
     }
 }

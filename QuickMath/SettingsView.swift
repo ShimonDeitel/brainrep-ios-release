@@ -6,75 +6,98 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage("quickmath.theme") private var themeRaw = AppTheme.system.rawValue
-
     @State private var showPaywall = false
     @State private var showDeleteConfirm = false
 
-    private var theme: Binding<AppTheme> {
-        Binding(
-            get: { AppTheme(rawValue: themeRaw) ?? .system },
-            set: { themeRaw = $0.rawValue }
-        )
+    private var theme: AppTheme {
+        get { AppTheme(rawValue: themeRaw) ?? .system }
+        nonmutating set { themeRaw = newValue.rawValue }
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 QMBackground()
-
                 List {
-                    // Pro section
+                    // Pro status
                     Section("Subscription") {
                         if store.isPro {
                             HStack {
-                                Text("Tideline Pro")
-                                Spacer()
-                                Text("Active")
-                                    .foregroundStyle(Color.qmCorrect)
-                                    .font(.subheadline.weight(.medium))
+                                Image(systemName: "star.fill")
+                                    .foregroundStyle(Color.qmAccent)
+                                Text("Brain Rep Pro — Active")
+                                    .foregroundStyle(.primary)
                             }
-                            Link("Manage Subscription",
-                                 destination: URL(string: "https://apps.apple.com/account/subscriptions")!)
-                                .foregroundStyle(Color.qmAccent)
-                        } else {
-                            Button("Unlock Tideline Pro") {
-                                showPaywall = true
+                            Link(destination: URL(string: "https://apps.apple.com/account/subscriptions")!) {
+                                HStack {
+                                    Text("Manage Subscription")
+                                    Spacer()
+                                    Image(systemName: "arrow.up.right")
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             .foregroundStyle(Color.qmAccent)
+                        } else {
+                            Button {
+                                showPaywall = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "lock.fill")
+                                        .foregroundStyle(Color.qmAccent)
+                                    Text("Unlock Brain Rep Pro")
+                                        .foregroundStyle(Color.qmAccent)
+                                }
+                            }
                         }
 
-                        Button("Restore Purchase") {
+                        Button {
                             Task { await store.restore() }
+                        } label: {
+                            Text("Restore Purchase")
+                                .foregroundStyle(Color.qmAccent)
                         }
-                        .foregroundStyle(Color.qmAccent)
                     }
 
                     // Appearance
                     Section("Appearance") {
-                        Picker("Theme", selection: theme) {
+                        Picker("Theme", selection: $themeRaw) {
                             ForEach(AppTheme.allCases) { t in
-                                Text(t.label).tag(t)
+                                Text(t.label).tag(t.rawValue)
                             }
                         }
                         .pickerStyle(.segmented)
                     }
 
-                    // Legal
+                    // Links
                     Section("Legal") {
-                        Link("Privacy Policy",
-                             destination: URL(string: "https://shimondeitel.github.io/tideline-site/privacy.html")!)
-                            .foregroundStyle(Color.qmAccent)
-                        Link("Terms of Use",
-                             destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
-                            .foregroundStyle(Color.qmAccent)
+                        Link(destination: URL(string: "https://shimondeitel.github.io/brainrep-site/privacy.html")!) {
+                            HStack {
+                                Text("Privacy Policy")
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+
+                        Link(destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!) {
+                            HStack {
+                                Text("Terms of Use")
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .foregroundStyle(.primary)
                     }
 
                     // Data
-                    Section("Data") {
-                        Button("Delete All Data") {
+                    Section {
+                        Button(role: .destructive) {
                             showDeleteConfirm = true
+                        } label: {
+                            Text("Delete All Data")
                         }
-                        .foregroundStyle(Color.qmWrong)
                     }
                 }
                 .scrollContentBackground(.hidden)
@@ -82,26 +105,23 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                        .foregroundStyle(Color.qmAccent)
                 }
             }
-            .sheet(isPresented: $showPaywall) {
-                PaywallView()
-                    .environmentObject(store)
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+                .environmentObject(store)
+        }
+        .confirmationDialog("Delete all exercise history?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete All", role: .destructive) {
+                appModel.deleteAllData()
             }
-            .confirmationDialog(
-                "Delete all Tideline data?",
-                isPresented: $showDeleteConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("Delete All", role: .destructive) {
-                    appModel.deleteAllData()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This removes all your logged energy entries and cannot be undone.")
-            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This cannot be undone.")
         }
     }
 }
